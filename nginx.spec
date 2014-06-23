@@ -2,12 +2,12 @@
 %define nginx_home %{_localstatedir}/cache/nginx
 %define nginx_user nginx
 %define nginx_group nginx
-%define libressl 757ef9b45f
+%define libressl 8535f41
 
 Summary: nginx-ssl is a high performance web server linked with uncrippled SSL
 Name: nginx-ssl
 Version: 1.7.1
-Release: 2%{?dist}.ngx
+Release: 3%{?dist}.ngx
 Vendor: nginx inc.
 URL: http://nginx.org/
 
@@ -244,6 +244,8 @@ if [ $1 -ge 1 ]; then
 fi
 
 %changelog
+* Mon Jun 23 2014 Joshua Small <technion@lolware.net> 1.7.1-3
+- Bump LibreSSL. This version imports Chacha20 support.
 * Fri Jun 06 2014 Joshua Small <technion@lolware.net> 1.7.1-2
 - Bump libressl for CVE-2014-0224
 * Mon Jun 02 2014 Joshua Small <technion@lolware.net> 1.7.1-1
