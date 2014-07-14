@@ -1,0 +1,29 @@
+--- src/event/ngx_event_openssl.c.dist	2014-07-14 03:32:44.000000000 +0000
++++ src/event/ngx_event_openssl.c	2014-07-14 03:34:03.000000000 +0000
+@@ -44,7 +44,7 @@
+     HMAC_CTX *hctx, int enc);
+ #endif
+ 
+-#if OPENSSL_VERSION_NUMBER < 0x10002001L
++#if 1
+ static ngx_int_t ngx_ssl_check_name(ngx_str_t *name, ASN1_STRING *str);
+ #endif
+ 
+@@ -2500,7 +2500,7 @@
+         return NGX_ERROR;
+     }
+ 
+-#if OPENSSL_VERSION_NUMBER >= 0x10002001L
++#if 0
+ 
+     /* X509_check_host() is only available in OpenSSL 1.0.2+ */
+ 
+@@ -2617,7 +2617,7 @@
+ }
+ 
+ 
+-#if OPENSSL_VERSION_NUMBER < 0x10002001L
++#if 1
+ 
+ static ngx_int_t
+ ngx_ssl_check_name(ngx_str_t *name, ASN1_STRING *pattern)

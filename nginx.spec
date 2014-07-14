@@ -2,12 +2,12 @@
 %define nginx_home %{_localstatedir}/cache/nginx
 %define nginx_user nginx
 %define nginx_group nginx
-%define libressl 8535f41
+%define libressl 2.0.1
 
 Summary: nginx-ssl is a high performance web server linked with uncrippled SSL
 Name: nginx-ssl
 Version: 1.7.1
-Release: 3%{?dist}.ngx
+Release: 4%{?dist}.ngx
 Vendor: nginx inc.
 URL: http://nginx.org/
 
@@ -16,16 +16,12 @@ Source1: logrotate
 Source2: nginx.init
 Source3: nginx.sysconf
 Source4: nginx.conf
-#Build script for SOURCE5
-#git clone https://github.com/busterb/libressl.git
-#git checkout fbbc8570
-#cd libressl
-#./autogen.sh
-#tar zcvf libressl-fbbc8570.tar.gz libressl/
+#http://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-2.0.1.tar.gz
 Source5: libressl-%{libressl}.tar.gz
 #Source6 from https://github.com/technion/mod_randpad/archive/v1.1.tar.gz
 Source6: mod_randpad-1.1.tar.gz
 Source7: nginx-libressl.patch
+Source8: nginx-libressl2.patch
 
 
 License: 2-clause BSD-like license
@@ -54,7 +50,7 @@ not stripped version of nginx build with the debugging log support
 %prep
 tar zxf %{SOURCE6}
 tar zxf %{SOURCE5}
-cd libressl
+cd libressl-%{libressl}
 ./configure
 cd ..
 %setup -q -n nginx-%{version}
@@ -77,16 +73,17 @@ cd ..
         --group=%{nginx_group} \
         --with-http_ssl_module \
         --with-http_spdy_module \
-        --with-openssl=../libressl \
+        --with-openssl=../libressl-%{libressl} \
         --with-http_realip_module \
         --with-file-aio \
         --with-ipv6 \
         --with-debug \
         --with-cc-opt="%{optflags} $(pcre-config --cflags)" \
-        --with-ld-opt="-Wl,-z,now -Wl,-z,rlo" \
+        --with-ld-opt="-Wl,-z,now -Wl,-z,rlo -lrt" \
         --add-module=../mod_randpad-1.1 \
         $*
-patch -p1 <  %{SOURCE7}
+patch -p0 < %{SOURCE7}
+patch -p0 < %{SOURCE8}
 make -j1
  
 %{__mv} %{_builddir}/nginx-%{version}/objs/nginx \
@@ -108,15 +105,16 @@ make -j1
         --group=%{nginx_group} \
         --with-http_ssl_module \
         --with-http_spdy_module \
-        --with-openssl=../libressl \
+        --with-openssl=../libressl-%{libressl} \
         --with-http_realip_module \
         --with-file-aio \
         --with-ipv6 \
         --with-cc-opt="%{optflags} $(pcre-config --cflags)" \
-        --with-ld-opt="-Wl,-z,now -Wl,-z,rlo" \
+        --with-ld-opt="-Wl,-z,now -Wl,-z,rlo -lrt" \
         --add-module=../mod_randpad-1.1 \
         $*
-patch -p1 <  %{SOURCE7}
+patch -p0 < %{SOURCE7}
+#patch -p0 < %{SOURCE8}
 make -j1
 
 %install
