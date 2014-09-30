@@ -6,8 +6,8 @@
 
 Summary: nginx-ssl is a high performance web server linked with uncrippled SSL
 Name: nginx-ssl
-Version: 1.7.1
-Release: 4%{?dist}.ngx
+Version: 1.7.5
+Release: 1%{?dist}.ngx
 Vendor: nginx inc.
 URL: http://nginx.org/
 
@@ -21,7 +21,6 @@ Source5: libressl-%{libressl}.tar.gz
 #Source6 from https://github.com/technion/mod_randpad/archive/v1.1.tar.gz
 Source6: mod_randpad-1.1.tar.gz
 Source7: nginx-libressl.patch
-Source8: nginx-libressl2.patch
 
 
 License: 2-clause BSD-like license
@@ -83,7 +82,6 @@ cd ..
         --add-module=../mod_randpad-1.1 \
         $*
 patch -p0 < %{SOURCE7}
-patch -p0 < %{SOURCE8}
 make -j1
  
 %{__mv} %{_builddir}/nginx-%{version}/objs/nginx \
@@ -242,6 +240,8 @@ if [ $1 -ge 1 ]; then
 fi
 
 %changelog
+* Tue Sep 30 2014 Joshua Small <technion@lolware.net> 1.7.5-1
+- New nginx stable
 * Mon Jun 23 2014 Joshua Small <technion@lolware.net> 1.7.1-3
 - Bump LibreSSL. This version imports Chacha20 support.
 * Fri Jun 06 2014 Joshua Small <technion@lolware.net> 1.7.1-2

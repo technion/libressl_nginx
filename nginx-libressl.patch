@@ -1,11 +1,11 @@
---- objs/Makefile.old	2014-07-14 01:42:47.000000000 +0000
-+++ objs/Makefile	2014-07-14 01:43:08.000000000 +0000
-@@ -1189,7 +1189,7 @@
+--- objs/Makefile.old	2014-09-30 00:49:42.000000000 +0000
++++ objs/Makefile	2014-09-30 00:50:00.000000000 +0000
+@@ -1198,7 +1198,7 @@
  ../libressl-2.0.1/.openssl/include/openssl/ssl.h:	objs/Makefile
  	cd ../libressl-2.0.1 \
  	&& if [ -f Makefile ]; then $(MAKE) clean; fi \
--	&& ./config --prefix=/root/rpmbuild/BUILD/nginx-1.7.1/../libressl-2.0.1/.openssl no-shared  no-threads \
-+	&& ./configure --prefix=/root/rpmbuild/BUILD/nginx-1.7.1/../libressl-2.0.1/.openssl \
+-	&& ./config --prefix=/root/rpmbuild/BUILD/nginx-1.7.5/../libressl-2.0.1/.openssl no-shared  no-threads \
++	&& ./configure --prefix=/root/rpmbuild/BUILD/nginx-1.7.5/../libressl-2.0.1/.openssl \
  	&& $(MAKE) \
  	&& $(MAKE) install LIBDIR=lib
  
