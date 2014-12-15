@@ -2,11 +2,11 @@
 %define nginx_home %{_localstatedir}/cache/nginx
 %define nginx_user nginx
 %define nginx_group nginx
-%define libressl 2.0.1
+%define libressl 2.1.2
 
 Summary: nginx-ssl is a high performance web server linked with uncrippled SSL
 Name: nginx-ssl
-Version: 1.7.5
+Version: 1.7.8
 Release: 1%{?dist}.ngx
 Vendor: nginx inc.
 URL: http://nginx.org/
@@ -16,11 +16,13 @@ Source1: logrotate
 Source2: nginx.init
 Source3: nginx.sysconf
 Source4: nginx.conf
-#http://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-2.0.1.tar.gz
+#http://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-2.1.2.tar.gz
 Source5: libressl-%{libressl}.tar.gz
 #Source6 from https://github.com/technion/mod_randpad/archive/v1.1.tar.gz
 Source6: mod_randpad-1.1.tar.gz
-Source7: nginx-libressl.patch
+Source7: libressl-config
+Source8: libressl-fallback-scsv.patch
+Source9: libressl-TLSEXTremove.patch
 
 
 License: 2-clause BSD-like license
@@ -51,6 +53,9 @@ tar zxf %{SOURCE6}
 tar zxf %{SOURCE5}
 cd libressl-%{libressl}
 ./configure
+patch -p1 < %{SOURCE9}
+patch -p1 < %{SOURCE8}
+%{__install} -m 755 -p %{SOURCE7} ./config 
 cd ..
 %setup -q -n nginx-%{version}
 
@@ -81,7 +86,6 @@ cd ..
         --with-ld-opt="-Wl,-z,now -Wl,-z,rlo -lrt" \
         --add-module=../mod_randpad-1.1 \
         $*
-patch -p0 < %{SOURCE7}
 make -j1
  
 %{__mv} %{_builddir}/nginx-%{version}/objs/nginx \
@@ -111,8 +115,7 @@ make -j1
         --with-ld-opt="-Wl,-z,now -Wl,-z,rlo -lrt" \
         --add-module=../mod_randpad-1.1 \
         $*
-patch -p0 < %{SOURCE7}
-#patch -p0 < %{SOURCE8}
+%{__install} -m 755 -p %{SOURCE7} ./config 
 make -j1
 
 %install
@@ -240,6 +243,12 @@ if [ $1 -ge 1 ]; then
 fi
 
 %changelog
+* Mon Dec 15 2014 Joshua Small <technion@lolware.net> 1.7.8-1
+- Bump nginx 1.7.8
+- Bump libressl 2.1.2
+- Patch fallback-scsv
+* Fri Oct 24 2014 Joshua Small <technion@lolware.net> 1.7.5-1
+- Bump libressl to 2.1.1
 * Tue Sep 30 2014 Joshua Small <technion@lolware.net> 1.7.5-1
 - New nginx stable
 * Mon Jun 23 2014 Joshua Small <technion@lolware.net> 1.7.1-3

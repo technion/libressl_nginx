@@ -1,0 +1,804 @@
+diff -urN libressl-2.1.2/apps/s_client.c libressl-2.1.2.scsv/apps/s_client.c
+--- libressl-2.1.2/apps/s_client.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/apps/s_client.c	2014-12-15 02:04:36.000000000 +0000
+@@ -230,6 +230,7 @@
+ 	BIO_printf(bio_err, " -tls1_2       - just use TLSv1.2\n");
+ 	BIO_printf(bio_err, " -tls1_1       - just use TLSv1.1\n");
+ 	BIO_printf(bio_err, " -tls1         - just use TLSv1\n");
++	BIO_printf(bio_err, " -fallback_scsv - send TLS_FALLBACK_SCSV\n");
+ 	BIO_printf(bio_err, " -dtls1        - just use DTLSv1\n");
+ 	BIO_printf(bio_err, " -mtu          - set the link layer MTU\n");
+ 	BIO_printf(bio_err, " -no_tls1_2/-no_tls1_1/-no_tls1/-no_ssl3/-no_ssl2 - turn off that protocol\n");
+@@ -378,6 +379,7 @@
+ 	char *sess_out = NULL;
+ 	struct sockaddr peer;
+ 	int peerlen = sizeof(peer);
++	int fallback_scsv = 0;
+ 	int enable_timeouts = 0;
+ 	long socket_mtu = 0;
+ 
+@@ -483,6 +485,8 @@
+ 			meth = TLSv1_1_client_method();
+ 		else if (strcmp(*argv, "-tls1") == 0)
+ 			meth = TLSv1_client_method();
++		else if (strcmp(*argv,"-fallback_scsv") == 0)
++			fallback_scsv = 1;
+ #ifndef OPENSSL_NO_DTLS1
+ 		else if (strcmp(*argv, "-dtls1") == 0) {
+ 			meth = DTLSv1_client_method();
+@@ -786,6 +790,10 @@
+ 		SSL_set_session(con, sess);
+ 		SSL_SESSION_free(sess);
+ 	}
++
++	if (fallback_scsv)
++		SSL_set_mode(con, SSL_MODE_SEND_FALLBACK_SCSV);
++
+ 	if (servername != NULL) {
+ 		if (!SSL_set_tlsext_host_name(con, servername)) {
+ 			BIO_printf(bio_err, "Unable to set TLS servername extension.\n");
+diff -urN libressl-2.1.2/include/openssl/dtls1.h libressl-2.1.2.scsv/include/openssl/dtls1.h
+--- libressl-2.1.2/include/openssl/dtls1.h	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/include/openssl/dtls1.h	2014-12-15 02:04:36.000000000 +0000
+@@ -73,6 +73,7 @@
+ #endif
+ 
+ #define DTLS1_VERSION			0xFEFF
++#define DTLS_MAX_VERSION		DTLS1_VERSION
+ #define DTLS1_BAD_VER			0x0100
+ 
+ /* lengths of messages */
+diff -urN libressl-2.1.2/include/openssl/ssl3.h libressl-2.1.2.scsv/include/openssl/ssl3.h
+--- libressl-2.1.2/include/openssl/ssl3.h	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/include/openssl/ssl3.h	2014-12-15 02:04:36.000000000 +0000
+@@ -125,9 +125,14 @@
+ extern "C" {
+ #endif
+ 
+-/* Signalling cipher suite value: from draft-ietf-tls-renegotiation-03.txt */
++/* Signalling cipher suite value from RFC 5746
++ * (TLS_EMPTY_RENEGOTIATION_INFO_SCSV) */
+ #define SSL3_CK_SCSV				0x030000FF
+ 
++/* Signalling cipher suite value from draft-ietf-tls-downgrade-scsv-00
++ * (TLS_FALLBACK_SCSV) */
++#define SSL3_CK_FALLBACK_SCSV          0x03005600
++
+ #define SSL3_CK_RSA_NULL_MD5			0x03000001
+ #define SSL3_CK_RSA_NULL_SHA			0x03000002
+ #define SSL3_CK_RSA_RC4_40_MD5 			0x03000003
+diff -urN libressl-2.1.2/include/openssl/ssl.h libressl-2.1.2.scsv/include/openssl/ssl.h
+--- libressl-2.1.2/include/openssl/ssl.h	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/include/openssl/ssl.h	2014-12-15 02:04:36.000000000 +0000
+@@ -609,6 +609,10 @@
+  * TLS only.)  "Released" buffers are put onto a free-list in the context
+  * or just freed (depending on the context's setting for freelist_max_len). */
+ #define SSL_MODE_RELEASE_BUFFERS 0x00000010L
++/* Send TLS_FALLBACK_SCSV in the ClientHello.
++ * To be set by applications that reconnect with a downgraded protocol
++ * version; see draft-ietf-tls-downgrade-scsv-00 for details. */
++#define SSL_MODE_SEND_FALLBACK_SCSV 0x00000020L
+ 
+ /* Note: SSL[_CTX]_set_{options,mode} use |= op on the previous value,
+  * they cannot be used to clear bits. */
+@@ -1328,6 +1332,7 @@
+ #define SSL_AD_BAD_CERTIFICATE_STATUS_RESPONSE TLS1_AD_BAD_CERTIFICATE_STATUS_RESPONSE
+ #define SSL_AD_BAD_CERTIFICATE_HASH_VALUE TLS1_AD_BAD_CERTIFICATE_HASH_VALUE
+ #define SSL_AD_UNKNOWN_PSK_IDENTITY     TLS1_AD_UNKNOWN_PSK_IDENTITY /* fatal */
++#define SSL_AD_INAPPROPRIATE_FALLBACK   TLS1_AD_INAPPROPRIATE_FALLBACK /* fatal */
+ 
+ #define SSL_ERROR_NONE			0
+ #define SSL_ERROR_SSL			1
+@@ -1432,6 +1437,8 @@
+ 
+ #define SSL_CTRL_SET_DH_AUTO			118
+ 
++#define SSL_CTRL_CHECK_PROTO_VERSION		119
++
+ #define DTLSv1_get_timeout(ssl, arg) \
+ 	SSL_ctrl(ssl,DTLS_CTRL_GET_TIMEOUT,0, (void *)arg)
+ #define DTLSv1_handle_timeout(ssl) \
+@@ -2134,6 +2141,7 @@
+ #define SSL_R_HTTPS_PROXY_REQUEST			 155
+ #define SSL_R_HTTP_REQUEST				 156
+ #define SSL_R_ILLEGAL_PADDING				 283
++#define SSL_R_INAPPROPRIATE_FALLBACK			 373
+ #define SSL_R_INCONSISTENT_COMPRESSION			 340
+ #define SSL_R_INVALID_CHALLENGE_LENGTH			 158
+ #define SSL_R_INVALID_COMMAND				 280
+@@ -2279,6 +2287,7 @@
+ #define SSL_R_TLSV1_ALERT_DECRYPTION_FAILED		 1021
+ #define SSL_R_TLSV1_ALERT_DECRYPT_ERROR			 1051
+ #define SSL_R_TLSV1_ALERT_EXPORT_RESTRICTION		 1060
++#define SSL_R_TLSV1_ALERT_INAPPROPRIATE_FALLBACK	 1086
+ #define SSL_R_TLSV1_ALERT_INSUFFICIENT_SECURITY		 1071
+ #define SSL_R_TLSV1_ALERT_INTERNAL_ERROR		 1080
+ #define SSL_R_TLSV1_ALERT_NO_RENEGOTIATION		 1100
+diff -urN libressl-2.1.2/include/openssl/tls1.h libressl-2.1.2.scsv/include/openssl/tls1.h
+--- libressl-2.1.2/include/openssl/tls1.h	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/include/openssl/tls1.h	2014-12-15 02:04:36.000000000 +0000
+@@ -171,6 +171,8 @@
+ #define TLS1_VERSION_MAJOR		0x03
+ #define TLS1_VERSION_MINOR		0x01
+ 
++#define TLS_MAX_VERSION		 TLS1_2_VERSION
++
+ #define TLS1_get_version(s) \
+ 		((s->version >> 8) == TLS1_VERSION_MAJOR ? s->version : 0)
+ 
+@@ -187,6 +189,7 @@
+ #define TLS1_AD_PROTOCOL_VERSION	70	/* fatal */
+ #define TLS1_AD_INSUFFICIENT_SECURITY	71	/* fatal */
+ #define TLS1_AD_INTERNAL_ERROR		80	/* fatal */
++#define TLS1_AD_INAPPROPRIATE_FALLBACK  86  /* fatal */
+ #define TLS1_AD_USER_CANCELLED		90
+ #define TLS1_AD_NO_RENEGOTIATION	100
+ /* Codes 110-114 are from RFC 3546. */
+diff -urN libressl-2.1.2/ssl/d1_lib.c libressl-2.1.2.scsv/ssl/d1_lib.c
+--- libressl-2.1.2/ssl/d1_lib.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/d1_lib.c	2014-12-15 02:04:36.000000000 +0000
+@@ -266,6 +266,16 @@
+ 	case DTLS_CTRL_LISTEN:
+ 		ret = dtls1_listen(s, parg);
+ 		break;
++	case SSL_CTRL_CHECK_PROTO_VERSION:
++		/* For library-internal use; checks that the current protocol
++		 * is the highest enabled version (according to s->ctx->method,
++		 * as version negotiation may have changed s->method). */
++#if DTLS_MAX_VERSION != DTLS1_VERSION
++#  error Code needs update for DTLS_method() support beyond DTLS1_VERSION.
++#endif
++		/* Just one protocol version is supported so far;
++		 * fail closed if the version is not as expected. */
++		return s->version == DTLS_MAX_VERSION;
+ 
+ 	default:
+ 		ret = ssl3_ctrl(s, cmd, larg, parg);
+diff -urN libressl-2.1.2/ssl/d1_lib.c.orig libressl-2.1.2.scsv/ssl/d1_lib.c.orig
+--- libressl-2.1.2/ssl/d1_lib.c.orig	1970-01-01 00:00:00.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/d1_lib.c.orig	2014-12-15 02:04:36.000000000 +0000
+@@ -0,0 +1,475 @@
++/* $OpenBSD: d1_lib.c,v 1.24 2014/07/17 23:48:24 deraadt Exp $ */
++/* 
++ * DTLS implementation written by Nagendra Modadugu
++ * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.  
++ */
++/* ====================================================================
++ * Copyright (c) 1999-2005 The OpenSSL Project.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer. 
++ *
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ *
++ * 3. All advertising materials mentioning features or use of this
++ *    software must display the following acknowledgment:
++ *    "This product includes software developed by the OpenSSL Project
++ *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
++ *
++ * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
++ *    endorse or promote products derived from this software without
++ *    prior written permission. For written permission, please contact
++ *    openssl-core@OpenSSL.org.
++ *
++ * 5. Products derived from this software may not be called "OpenSSL"
++ *    nor may "OpenSSL" appear in their names without prior written
++ *    permission of the OpenSSL Project.
++ *
++ * 6. Redistributions of any form whatsoever must retain the following
++ *    acknowledgment:
++ *    "This product includes software developed by the OpenSSL Project
++ *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
++ * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
++ * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
++ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
++ * OF THE POSSIBILITY OF SUCH DAMAGE.
++ * ====================================================================
++ *
++ * This product includes cryptographic software written by Eric Young
++ * (eay@cryptsoft.com).  This product includes software written by Tim
++ * Hudson (tjh@cryptsoft.com).
++ *
++ */
++
++#include <sys/types.h>
++#include <sys/socket.h>
++
++#include <netinet/in.h>
++
++#include <stdio.h>
++
++#include <openssl/objects.h>
++
++#include "pqueue.h"
++#include "ssl_locl.h"
++
++int dtls1_listen(SSL *s, struct sockaddr *client);
++
++SSL3_ENC_METHOD DTLSv1_enc_data = {
++	.enc = dtls1_enc,
++	.mac = tls1_mac,
++	.setup_key_block = tls1_setup_key_block,
++	.generate_master_secret = tls1_generate_master_secret,
++	.change_cipher_state = tls1_change_cipher_state,
++	.final_finish_mac = tls1_final_finish_mac,
++	.finish_mac_length = TLS1_FINISH_MAC_LENGTH,
++	.cert_verify_mac = tls1_cert_verify_mac,
++	.client_finished_label = TLS_MD_CLIENT_FINISH_CONST,
++	.client_finished_label_len = TLS_MD_CLIENT_FINISH_CONST_SIZE,
++	.server_finished_label = TLS_MD_SERVER_FINISH_CONST,
++	.server_finished_label_len = TLS_MD_SERVER_FINISH_CONST_SIZE,
++	.alert_value = tls1_alert_code,
++	.export_keying_material = tls1_export_keying_material,
++	.enc_flags = SSL_ENC_FLAG_DTLS|SSL_ENC_FLAG_EXPLICIT_IV,
++};
++
++long
++dtls1_default_timeout(void)
++{
++	/* 2 hours, the 24 hours mentioned in the DTLSv1 spec
++	 * is way too long for http, the cache would over fill */
++	return (60*60*2);
++}
++
++int
++dtls1_new(SSL *s)
++{
++	DTLS1_STATE *d1;
++
++	if (!ssl3_new(s))
++		return (0);
++	if ((d1 = calloc(1, sizeof *d1)) == NULL) {
++		ssl3_free(s);
++		return (0);
++	}
++
++	/* d1->handshake_epoch=0; */
++
++	d1->unprocessed_rcds.q = pqueue_new();
++	d1->processed_rcds.q = pqueue_new();
++	d1->buffered_messages = pqueue_new();
++	d1->sent_messages = pqueue_new();
++	d1->buffered_app_data.q = pqueue_new();
++
++	if (s->server) {
++		d1->cookie_len = sizeof(s->d1->cookie);
++	}
++
++	if (!d1->unprocessed_rcds.q || !d1->processed_rcds.q ||
++	    !d1->buffered_messages || !d1->sent_messages ||
++	    !d1->buffered_app_data.q) {
++		if (d1->unprocessed_rcds.q)
++			pqueue_free(d1->unprocessed_rcds.q);
++		if (d1->processed_rcds.q)
++			pqueue_free(d1->processed_rcds.q);
++		if (d1->buffered_messages)
++			pqueue_free(d1->buffered_messages);
++		if (d1->sent_messages)
++			pqueue_free(d1->sent_messages);
++		if (d1->buffered_app_data.q)
++			pqueue_free(d1->buffered_app_data.q);
++		free(d1);
++		ssl3_free(s);
++		return (0);
++	}
++
++	s->d1 = d1;
++	s->method->ssl_clear(s);
++	return (1);
++}
++
++static void
++dtls1_clear_queues(SSL *s)
++{
++	pitem *item = NULL;
++	hm_fragment *frag = NULL;
++	DTLS1_RECORD_DATA *rdata;
++
++	while ((item = pqueue_pop(s->d1->unprocessed_rcds.q)) != NULL) {
++		rdata = (DTLS1_RECORD_DATA *) item->data;
++		free(rdata->rbuf.buf);
++		free(item->data);
++		pitem_free(item);
++	}
++
++	while ((item = pqueue_pop(s->d1->processed_rcds.q)) != NULL) {
++		rdata = (DTLS1_RECORD_DATA *) item->data;
++		free(rdata->rbuf.buf);
++		free(item->data);
++		pitem_free(item);
++	}
++
++	while ((item = pqueue_pop(s->d1->buffered_messages)) != NULL) {
++		frag = (hm_fragment *)item->data;
++		free(frag->fragment);
++		free(frag);
++		pitem_free(item);
++	}
++
++	while ((item = pqueue_pop(s->d1->sent_messages)) != NULL) {
++		frag = (hm_fragment *)item->data;
++		free(frag->fragment);
++		free(frag);
++		pitem_free(item);
++	}
++
++	while ((item = pqueue_pop(s->d1->buffered_app_data.q)) != NULL) {
++		rdata = (DTLS1_RECORD_DATA *) item->data;
++		free(rdata->rbuf.buf);
++		free(item->data);
++		pitem_free(item);
++	}
++}
++
++void
++dtls1_free(SSL *s)
++{
++	ssl3_free(s);
++
++	dtls1_clear_queues(s);
++
++	pqueue_free(s->d1->unprocessed_rcds.q);
++	pqueue_free(s->d1->processed_rcds.q);
++	pqueue_free(s->d1->buffered_messages);
++	pqueue_free(s->d1->sent_messages);
++	pqueue_free(s->d1->buffered_app_data.q);
++
++	OPENSSL_cleanse(s->d1, sizeof *s->d1);
++	free(s->d1);
++	s->d1 = NULL;
++}
++
++void
++dtls1_clear(SSL *s)
++{
++	pqueue unprocessed_rcds;
++	pqueue processed_rcds;
++	pqueue buffered_messages;
++	pqueue sent_messages;
++	pqueue buffered_app_data;
++	unsigned int mtu;
++
++	if (s->d1) {
++		unprocessed_rcds = s->d1->unprocessed_rcds.q;
++		processed_rcds = s->d1->processed_rcds.q;
++		buffered_messages = s->d1->buffered_messages;
++		sent_messages = s->d1->sent_messages;
++		buffered_app_data = s->d1->buffered_app_data.q;
++		mtu = s->d1->mtu;
++
++		dtls1_clear_queues(s);
++
++		memset(s->d1, 0, sizeof(*(s->d1)));
++
++		if (s->server) {
++			s->d1->cookie_len = sizeof(s->d1->cookie);
++		}
++
++		if (SSL_get_options(s) & SSL_OP_NO_QUERY_MTU) {
++			s->d1->mtu = mtu;
++		}
++
++		s->d1->unprocessed_rcds.q = unprocessed_rcds;
++		s->d1->processed_rcds.q = processed_rcds;
++		s->d1->buffered_messages = buffered_messages;
++		s->d1->sent_messages = sent_messages;
++		s->d1->buffered_app_data.q = buffered_app_data;
++	}
++
++	ssl3_clear(s);
++	if (s->options & SSL_OP_CISCO_ANYCONNECT)
++		s->version = DTLS1_BAD_VER;
++	else
++		s->version = DTLS1_VERSION;
++}
++
++long
++dtls1_ctrl(SSL *s, int cmd, long larg, void *parg)
++{
++	int ret = 0;
++
++	switch (cmd) {
++	case DTLS_CTRL_GET_TIMEOUT:
++		if (dtls1_get_timeout(s, (struct timeval*) parg) != NULL) {
++			ret = 1;
++		}
++		break;
++	case DTLS_CTRL_HANDLE_TIMEOUT:
++		ret = dtls1_handle_timeout(s);
++		break;
++	case DTLS_CTRL_LISTEN:
++		ret = dtls1_listen(s, parg);
++		break;
++
++	default:
++		ret = ssl3_ctrl(s, cmd, larg, parg);
++		break;
++	}
++	return (ret);
++}
++
++/*
++ * As it's impossible to use stream ciphers in "datagram" mode, this
++ * simple filter is designed to disengage them in DTLS. Unfortunately
++ * there is no universal way to identify stream SSL_CIPHER, so we have
++ * to explicitly list their SSL_* codes. Currently RC4 is the only one
++ * available, but if new ones emerge, they will have to be added...
++ */
++const SSL_CIPHER *
++dtls1_get_cipher(unsigned int u)
++{
++	const SSL_CIPHER *ciph = ssl3_get_cipher(u);
++
++	if (ciph != NULL) {
++		if (ciph->algorithm_enc == SSL_RC4)
++			return NULL;
++	}
++
++	return ciph;
++}
++
++void
++dtls1_start_timer(SSL *s)
++{
++#ifndef OPENSSL_NO_SCTP
++	/* Disable timer for SCTP */
++	if (BIO_dgram_is_sctp(SSL_get_wbio(s))) {
++		memset(&(s->d1->next_timeout), 0, sizeof(struct timeval));
++		return;
++	}
++#endif
++
++	/* If timer is not set, initialize duration with 1 second */
++	if (s->d1->next_timeout.tv_sec == 0 && s->d1->next_timeout.tv_usec == 0) {
++		s->d1->timeout_duration = 1;
++	}
++
++	/* Set timeout to current time */
++	gettimeofday(&(s->d1->next_timeout), NULL);
++
++	/* Add duration to current time */
++	s->d1->next_timeout.tv_sec += s->d1->timeout_duration;
++	BIO_ctrl(SSL_get_rbio(s), BIO_CTRL_DGRAM_SET_NEXT_TIMEOUT, 0,
++	    &(s->d1->next_timeout));
++}
++
++struct timeval*
++dtls1_get_timeout(SSL *s, struct timeval* timeleft)
++{
++	struct timeval timenow;
++
++	/* If no timeout is set, just return NULL */
++	if (s->d1->next_timeout.tv_sec == 0 && s->d1->next_timeout.tv_usec == 0) {
++		return NULL;
++	}
++
++	/* Get current time */
++	gettimeofday(&timenow, NULL);
++
++	/* If timer already expired, set remaining time to 0 */
++	if (s->d1->next_timeout.tv_sec < timenow.tv_sec ||
++	    (s->d1->next_timeout.tv_sec == timenow.tv_sec &&
++	     s->d1->next_timeout.tv_usec <= timenow.tv_usec)) {
++		memset(timeleft, 0, sizeof(struct timeval));
++		return timeleft;
++	}
++
++	/* Calculate time left until timer expires */
++	memcpy(timeleft, &(s->d1->next_timeout), sizeof(struct timeval));
++	timeleft->tv_sec -= timenow.tv_sec;
++	timeleft->tv_usec -= timenow.tv_usec;
++	if (timeleft->tv_usec < 0) {
++		timeleft->tv_sec--;
++		timeleft->tv_usec += 1000000;
++	}
++
++	/* If remaining time is less than 15 ms, set it to 0
++	 * to prevent issues because of small devergences with
++	 * socket timeouts.
++	 */
++	if (timeleft->tv_sec == 0 && timeleft->tv_usec < 15000) {
++		memset(timeleft, 0, sizeof(struct timeval));
++	}
++
++
++	return timeleft;
++}
++
++int
++dtls1_is_timer_expired(SSL *s)
++{
++	struct timeval timeleft;
++
++	/* Get time left until timeout, return false if no timer running */
++	if (dtls1_get_timeout(s, &timeleft) == NULL) {
++		return 0;
++	}
++
++	/* Return false if timer is not expired yet */
++	if (timeleft.tv_sec > 0 || timeleft.tv_usec > 0) {
++		return 0;
++	}
++
++	/* Timer expired, so return true */
++	return 1;
++}
++
++void
++dtls1_double_timeout(SSL *s)
++{
++	s->d1->timeout_duration *= 2;
++	if (s->d1->timeout_duration > 60)
++		s->d1->timeout_duration = 60;
++	dtls1_start_timer(s);
++}
++
++void
++dtls1_stop_timer(SSL *s)
++{
++	/* Reset everything */
++	memset(&(s->d1->timeout), 0, sizeof(struct dtls1_timeout_st));
++	memset(&(s->d1->next_timeout), 0, sizeof(struct timeval));
++	s->d1->timeout_duration = 1;
++	BIO_ctrl(SSL_get_rbio(s), BIO_CTRL_DGRAM_SET_NEXT_TIMEOUT, 0,
++	    &(s->d1->next_timeout));
++	/* Clear retransmission buffer */
++	dtls1_clear_record_buffer(s);
++}
++
++int
++dtls1_check_timeout_num(SSL *s)
++{
++	s->d1->timeout.num_alerts++;
++
++	/* Reduce MTU after 2 unsuccessful retransmissions */
++	if (s->d1->timeout.num_alerts > 2) {
++		s->d1->mtu = BIO_ctrl(SSL_get_wbio(s),
++		    BIO_CTRL_DGRAM_GET_FALLBACK_MTU, 0, NULL);
++
++	}
++
++	if (s->d1->timeout.num_alerts > DTLS1_TMO_ALERT_COUNT) {
++		/* fail the connection, enough alerts have been sent */
++		SSLerr(SSL_F_DTLS1_CHECK_TIMEOUT_NUM, SSL_R_READ_TIMEOUT_EXPIRED);
++		return -1;
++	}
++
++	return 0;
++}
++
++int
++dtls1_handle_timeout(SSL *s)
++{
++	/* if no timer is expired, don't do anything */
++	if (!dtls1_is_timer_expired(s)) {
++		return 0;
++	}
++
++	dtls1_double_timeout(s);
++
++	if (dtls1_check_timeout_num(s) < 0)
++		return -1;
++
++	s->d1->timeout.read_timeouts++;
++	if (s->d1->timeout.read_timeouts > DTLS1_TMO_READ_COUNT) {
++		s->d1->timeout.read_timeouts = 1;
++	}
++
++	dtls1_start_timer(s);
++	return dtls1_retransmit_buffered_messages(s);
++}
++
++int
++dtls1_listen(SSL *s, struct sockaddr *client)
++{
++	int ret;
++
++	SSL_set_options(s, SSL_OP_COOKIE_EXCHANGE);
++	s->d1->listen = 1;
++
++	ret = SSL_accept(s);
++	if (ret <= 0)
++		return ret;
++
++	(void)BIO_dgram_get_peer(SSL_get_rbio(s), client);
++	return 1;
++}
++
++void
++dtls1_build_sequence_number(unsigned char *dst, unsigned char *seq,
++    unsigned short epoch)
++{
++	unsigned char dtlsseq[SSL3_SEQUENCE_SIZE];
++	unsigned char *p;
++
++	p = dtlsseq;
++	s2n(epoch, p);
++	memcpy(p, &seq[2], SSL3_SEQUENCE_SIZE - 2);
++	memcpy(dst, dtlsseq, SSL3_SEQUENCE_SIZE);
++}
+diff -urN libressl-2.1.2/ssl/s23_clnt.c libressl-2.1.2.scsv/ssl/s23_clnt.c
+--- libressl-2.1.2/ssl/s23_clnt.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/s23_clnt.c	2014-12-15 02:04:36.000000000 +0000
+@@ -498,6 +498,9 @@
+ 			goto err;
+ 		}
+ 
++		/* ensure that TLS_MAX_VERSION is up-to-date */
++		OPENSSL_assert(s->version <= TLS_MAX_VERSION);
++
+ 		if (p[0] == SSL3_RT_ALERT && p[5] != SSL3_AL_WARNING) {
+ 			/* fatal alert */
+ 			void (*cb)(const SSL *ssl, int type, int val) = NULL;
+diff -urN libressl-2.1.2/ssl/s23_srvr.c libressl-2.1.2.scsv/ssl/s23_srvr.c
+--- libressl-2.1.2/ssl/s23_srvr.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/s23_srvr.c	2014-12-15 02:04:36.000000000 +0000
+@@ -261,6 +261,9 @@
+ int
+ ssl23_get_client_hello(SSL *s)
+ {
++	/* ensure that TLS_MAX_VERSION is up-to-date */
++	OPENSSL_assert(s->version <= TLS_MAX_VERSION);
++
+ 	char buf[11];
+ 	/*
+ 	 * sizeof(buf) == 11, because we'll need to request this many bytes in
+diff -urN libressl-2.1.2/ssl/s3_enc.c libressl-2.1.2.scsv/ssl/s3_enc.c
+--- libressl-2.1.2/ssl/s3_enc.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/s3_enc.c	2014-12-15 02:04:36.000000000 +0000
+@@ -833,6 +833,8 @@
+ 		return (SSL3_AD_HANDSHAKE_FAILURE);
+ 	case SSL_AD_UNKNOWN_PSK_IDENTITY:
+ 		return (TLS1_AD_UNKNOWN_PSK_IDENTITY);
++	case SSL_AD_INAPPROPRIATE_FALLBACK:
++		return (TLS1_AD_INAPPROPRIATE_FALLBACK);
+ 	default:
+ 		return (-1);
+ 	}
+diff -urN libressl-2.1.2/ssl/s3_lib.c libressl-2.1.2.scsv/ssl/s3_lib.c
+--- libressl-2.1.2/ssl/s3_lib.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/s3_lib.c	2014-12-15 02:04:36.000000000 +0000
+@@ -2143,6 +2143,32 @@
+ 		ret = 1;
+ 		break;
+ 
++	case SSL_CTRL_CHECK_PROTO_VERSION:
++		/* For library-internal use; checks that the current protocol
++		 * is the highest enabled version (according to s->ctx->method,
++		 * as version negotiation may have changed s->method). */
++		if (s->version == s->ctx->method->version)
++			ret = 1;
++		/* Apparently we're using a version-flexible SSL_METHOD
++		 * (not at its highest protocol version). */
++		else if (s->ctx->method->version == SSLv23_method()->version) {
++#if TLS_MAX_VERSION != TLS1_2_VERSION
++#  error Code needs update for SSLv23_method() support beyond TLS1_2_VERSION.
++#endif
++			if (!(s->options & SSL_OP_NO_TLSv1_2))
++				ret = (s->version == TLS1_2_VERSION);
++			else if (!(s->options & SSL_OP_NO_TLSv1_1))
++				ret = (s->version == TLS1_1_VERSION);
++			else if (!(s->options & SSL_OP_NO_TLSv1))
++				ret = (s->version == TLS1_VERSION);
++			else if (!(s->options & SSL_OP_NO_SSLv3))
++				ret = (s->version == SSL3_VERSION);
++			else if (!(s->options & SSL_OP_NO_SSLv2))
++				ret = (s->version == SSL2_VERSION);
++		}
++		else
++			ret = 0; /* Unexpected state; fail closed. */
++
+ 	default:
+ 		break;
+ 	}
+diff -urN libressl-2.1.2/ssl/ssl_err.c libressl-2.1.2.scsv/ssl/ssl_err.c
+--- libressl-2.1.2/ssl/ssl_err.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/ssl_err.c	2014-12-15 02:04:36.000000000 +0000
+@@ -385,6 +385,7 @@
+ 	{ERR_REASON(SSL_R_HTTPS_PROXY_REQUEST)   , "https proxy request"},
+ 	{ERR_REASON(SSL_R_HTTP_REQUEST)          , "http request"},
+ 	{ERR_REASON(SSL_R_ILLEGAL_PADDING)       , "illegal padding"},
++	{ERR_REASON(SSL_R_INAPPROPRIATE_FALLBACK),"inappropriate fallback"},
+ 	{ERR_REASON(SSL_R_INCONSISTENT_COMPRESSION), "inconsistent compression"},
+ 	{ERR_REASON(SSL_R_INVALID_CHALLENGE_LENGTH), "invalid challenge length"},
+ 	{ERR_REASON(SSL_R_INVALID_COMMAND)       , "invalid command"},
+@@ -530,6 +531,7 @@
+ 	{ERR_REASON(SSL_R_TLSV1_ALERT_DECRYPTION_FAILED), "tlsv1 alert decryption failed"},
+ 	{ERR_REASON(SSL_R_TLSV1_ALERT_DECRYPT_ERROR), "tlsv1 alert decrypt error"},
+ 	{ERR_REASON(SSL_R_TLSV1_ALERT_EXPORT_RESTRICTION), "tlsv1 alert export restriction"},
++	{ERR_REASON(SSL_R_TLSV1_ALERT_INAPPROPRIATE_FALLBACK),"tlsv1 alert inappropriate fallback"},
+ 	{ERR_REASON(SSL_R_TLSV1_ALERT_INSUFFICIENT_SECURITY), "tlsv1 alert insufficient security"},
+ 	{ERR_REASON(SSL_R_TLSV1_ALERT_INTERNAL_ERROR), "tlsv1 alert internal error"},
+ 	{ERR_REASON(SSL_R_TLSV1_ALERT_NO_RENEGOTIATION), "tlsv1 alert no renegotiation"},
+diff -urN libressl-2.1.2/ssl/ssl_lib.c libressl-2.1.2.scsv/ssl/ssl_lib.c
+--- libressl-2.1.2/ssl/ssl_lib.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/ssl_lib.c	2014-12-15 02:04:36.000000000 +0000
+@@ -1390,15 +1390,22 @@
+ 		s2n(ssl3_cipher_get_value(c), p);
+ 	}
+ 
+-	/*
+-	 * If p == q, no ciphers and caller indicates an error. Otherwise
+-	 * add SCSV if not renegotiating.
+-	 */
+-	if (p != q && !s->renegotiate) {
+-		static SSL_CIPHER scsv = {
+-			0, NULL, SSL3_CK_SCSV, 0, 0, 0, 0, 0, 0, 0, 0, 0
+-		};
+-		s2n(ssl3_cipher_get_value(&scsv), p);
++	/* If p == q, no ciphers; caller indicates an error.
++	 * Otherwise, add applicable SCSVs. */
++	if (p != q) {
++		if (!s->renegotiate) {
++			static SSL_CIPHER scsv = {
++				0, NULL, SSL3_CK_SCSV, 0, 0, 0, 0, 0, 0, 0, 0, 0
++			};
++			s2n(ssl3_cipher_get_value(&scsv), p);
++		}
++
++		if (s->mode & SSL_MODE_SEND_FALLBACK_SCSV) {
++			static SSL_CIPHER scsv = {
++				0, NULL, SSL3_CK_FALLBACK_SCSV, 0, 0, 0, 0, 0, 0, 0, 0, 0
++			};
++			s2n(ssl3_cipher_get_value(&scsv), p);
++		}
+ 	}
+ 
+ 	return (p - q);
+@@ -1435,7 +1442,7 @@
+ 		n2s(p, cipher_value);
+ 		cipher_id = SSL3_CK_ID | cipher_value;
+ 
+-		/* Check for SCSV */
++		/* Check for TLS_EMPTY_RENEGOTIATION_INFO_SCSV */
+ 		if (s->s3 && cipher_id == SSL3_CK_SCSV) {
+ 			/* SCSV is fatal if renegotiating. */
+ 			if (s->renegotiate) {
+@@ -1450,6 +1457,19 @@
+ 			continue;
+ 		}
+ 
++		/* Check for TLS_FALLBACK_SCSV */
++		if (cipher_id == SSL3_CK_FALLBACK_SCSV) {
++			if (!SSL_ctrl(s, SSL_CTRL_CHECK_PROTO_VERSION, 0, NULL)) {
++				SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST, SSL_R_INAPPROPRIATE_FALLBACK);
++
++				if (s->s3)
++					ssl3_send_alert(s,SSL3_AL_FATAL, SSL_AD_INAPPROPRIATE_FALLBACK);
++
++				goto err;
++			}
++			continue;
++		}
++
+ 		c = ssl3_get_cipher_by_id(cipher_id);
+ 		if (c != NULL) {
+ 			if (!sk_SSL_CIPHER_push(sk, c)) {
+diff -urN libressl-2.1.2/ssl/t1_enc.c libressl-2.1.2.scsv/ssl/t1_enc.c
+--- libressl-2.1.2/ssl/t1_enc.c	2014-12-06 23:15:50.000000000 +0000
++++ libressl-2.1.2.scsv/ssl/t1_enc.c	2014-12-15 02:04:36.000000000 +0000
+@@ -1241,6 +1241,8 @@
+ 		return (TLS1_AD_BAD_CERTIFICATE_HASH_VALUE);
+ 	case SSL_AD_UNKNOWN_PSK_IDENTITY:
+ 		return (TLS1_AD_UNKNOWN_PSK_IDENTITY);
++	case SSL_AD_INAPPROPRIATE_FALLBACK:
++		return(TLS1_AD_INAPPROPRIATE_FALLBACK);
+ 	default:
+ 		return (-1);
+ 	}
